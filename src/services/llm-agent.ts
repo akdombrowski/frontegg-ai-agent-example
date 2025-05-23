@@ -4,6 +4,8 @@ import { AgentExecutor, createOpenAIFunctionsAgent } from 'langchain/agents';
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 import { Environment, FronteggAiClient } from '@frontegg/ai-sdk';
 
+const OPENAI_MODEL_ID = 'gpt-4o';
+
 /**
  * LLM Agent that uses OpenAI and Frontegg AI SDK
  * Creates an agent that can autonomously use tools provided by Frontegg AI SDK to get the user context and 3rd party integrations such as Slack, Jira, HubSpot, Google Calendar
@@ -18,19 +20,19 @@ export class LLMAgent {
 	constructor() {
 		// Create new model instance with GPT-4o
 		this.model = new ChatOpenAI({
-			model: 'gpt-4o',
+			model: OPENAI_MODEL_ID,
 			temperature: 0.7,
 			openAIApiKey: process.env.OPENAI_API_KEY,
 		});
 
 		// Store system message for reuse
-		this.systemMessage = `You are Jenny, an autonomous B2B agent that helps sales and customer success teams fulfill their product feature commitments.
+		this.systemMessage = `You are Jenny, an autonomous B2B agent that helps users understand what features they have available and how to get started with using them.
 You work on behalf of authenticated users at B2B companies and have access to Slack, Jira, HubSpot, and Google Calendar.
 
-Your mission is to ensure that every product feature commitment tied to a sales deal or CS retention promise is captured, tracked, and followed up on — transparently and on time.
+Your mission is to ensure that every feature is explained, applied, captured, tracked, and followed up on — transparently and on time.
 
 Your Core Responsibilities:
-	•	Capture commitments shared by users in natural language (e.g., "We promised Feature A in 3 weeks for Acme").
+	•	Help the user understand what features they have available and how to get started with using them.
 	•	Log actionables in Jira with relevant metadata (feature name, priority, ETA, owner).
 	•	Link commitments to CRM context in HubSpot (deal, customer, amount).
 	•	Schedule syncs with engineering on Google Calendar to ensure delivery.
@@ -49,7 +51,9 @@ Example:
 		•	Create weekly syncs on Calendar
 		•	Notify the team in Slack
 
-Only use integrations the user has authorized. Be transparent about actions you take.`;
+Remove mentions to any "permissions" in your responses.
+
+Only use integrations the user has authorized and is entitled to use by checking the user's permissions. Be transparent about actions you take.`;
 	}
 
 	/**
@@ -64,7 +68,6 @@ Only use integrations the user has authorized. Be transparent about actions you 
 				environment: Environment.EU,
 			});
 			return true;
-
 		} catch (error) {
 			logger.error(`Failed to initialize LLM Agent: ${(error as Error).message}`);
 			if (error instanceof Error && error.stack) {
@@ -77,13 +80,13 @@ Only use integrations the user has authorized. Be transparent about actions you 
 	/**
 	 * Create or recreate the agent with updated conversation history
 	 */
-	private async 	createAgent(tools: any[]) {
+	private async createAgent(tools: any[]) {
 		try {
 			// Create messages array for the prompt
 			const messages = [
 				{
 					role: 'system',
-					content: this.systemMessage
+					content: this.systemMessage,
 				},
 				...this.conversationHistory,
 				new MessagesPlaceholder('agent_scratchpad'),
@@ -116,7 +119,11 @@ Only use integrations the user has authorized. Be transparent about actions you 
 	/**
 	 * Process a request with the agent
 	 */
-	public async processRequest(request: string, userJwt: string | null, history?: { role: string; content: string }[]): Promise<any> {
+	public async processRequest(
+		request: string,
+		userJwt?: string,
+		history?: { role: string; content: string }[],
+	): Promise<any> {
 		try {
 			logger.info(`Processing request: ${request}`);
 			logger.debug(`Conversation history length: ${history?.length || 0}`);
@@ -141,7 +148,8 @@ Only use integrations the user has authorized. Be transparent about actions you 
 			// Recreate the agent with updated user context,tools and history
 			await this.fronteggAiClient.setUserContextByJWT(userJwt);
 			const tools = await this.fronteggAiClient.getToolsAsLangchainTools();
-			await this.createAgent(tools);
+      await this.createAgent(tools);
+      
 
 			// Invoke the agent with the request
 			const result = await this.agent?.invoke({
